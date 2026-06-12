@@ -32,13 +32,13 @@ def show_category_error(invalid_category: str, categories: dict, console: Consol
     """Display a user-friendly error message for invalid category input."""
     console.print(f"[red]✗ Category '{invalid_category}' not found.[/red]")
     console.print()
-    
+
     if categories:
         console.print("[yellow]Available categories:[/yellow]")
         for cat_name, cat_code in categories.items():
             console.print(f"  • [cyan]{cat_name}[/cyan] ({cat_code})")
         console.print()
-    
+
     console.print("[dim]Usage:[/dim] punch add <category> : <task> : [notes]")
     console.print("[dim]Example:[/dim] punch add dev : Fix login bug : Added authentication")
     console.print()
@@ -54,15 +54,15 @@ def find_matching_in_shortcuts(value: str) -> Optional[str]:
 
     if len(result) > 1:
         raise typer.BadParameter(f"Ambiguous date shortcut: {value!r} matches {', '.join(result)}")
-    
+
     return result[0] if result else None
 
 def check_human_date(value: str) -> str:
     if not value:
         return ""
-    
+
     mapping = find_matching_in_shortcuts(value)
-    
+
     value = mapping if mapping else value
     try:
         dt = dateparser.parse(value)
@@ -71,7 +71,7 @@ def check_human_date(value: str) -> str:
         return dt.date().strftime("%x")
     except Exception as e:
         raise typer.BadParameter(f"Invalid date format: {value!r}") from e
-    
+
 def human_date(value: str) -> date:
     try:
         dt = dateparser.parse(value)
@@ -88,7 +88,7 @@ def check_valid_date(date_str: str) -> str:
         return datetime.strptime(date_str, "%Y-%m-%d").date().strftime("%Y-%m-%d")
     except ValueError:
         raise typer.BadParameter("Invalid date format. Use YYYY-MM-DD.")
-    
+
 def valid_date(date_str: str) -> date:
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -167,7 +167,7 @@ def _get_default_config() -> dict:
     Excludes the full_name field (personal user data).
     """
     snap_config_path = Path.home() / "snap/punch/current/.config/punch/punch.yaml"
-    
+
     if snap_config_path.exists():
         try:
             with open(snap_config_path, "r") as f:
@@ -177,7 +177,7 @@ def _get_default_config() -> dict:
             return config
         except Exception:
             pass
-    
+
     return {"categories": []}
 
 @app.callback(invoke_without_command=True)
@@ -199,7 +199,7 @@ def main_callback(ctx: typer.Context ):
 
     if ctx.invoked_subcommand is None:
         ctx.invoke(add)
-                
+
 
 @app.command()
 def start(
@@ -210,7 +210,7 @@ def start(
     Mark the start of your day.
     """
     tasks_file = get_tasks_file()
-    
+
     handle_start(SimpleNamespace(time=time_to_current_datetime(time) if time else None, verbose=verbose), tasks_file)
 
 @app.command()
@@ -303,7 +303,7 @@ def resolve_date_range(day: Optional[str], from_date: Optional[str], to_date: Op
         from_obj = to_obj = day_obj
     elif from_obj and not to_obj:
         to_obj = date.today()
-    
+
     if not day_obj and not from_obj and not to_obj:
         day_obj = from_obj = to_obj = date.today()
 
@@ -515,7 +515,7 @@ def whats_new():
             if copy:
                 out.append(line)
         text = "\n".join(out) or f"Version not found ini changelog: {current_ver}."
-    
+
     console.print(text)
 
 @app.command("tutorial")
