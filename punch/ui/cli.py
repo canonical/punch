@@ -466,5 +466,14 @@ def whats_new():
     
     console.print(text)
 
+@app.command("tutorial")
+def tutorial():
+    """
+    Interactive tutorial walking you through punch features and common workflows.
+    """
+    console = Console()
+    from punch.commands import handle_tutorial
+    handle_tutorial(console)
+
 if __name__ == "__main__":
     app()
