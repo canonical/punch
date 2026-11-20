@@ -117,12 +117,14 @@ parts:
       export PLAYWRIGHT_BROWSERS_PATH=$SNAPCRAFT_PART_INSTALL/playwright-browsers
       playwright install --with-deps firefox
       
-      # Detect the libonnxruntime.so regardless of version number
-      for dir in $SNAPCRAFT_PART_INSTALL/playwright-browsers/firefox-*; do
-        if [ -d "$dir/firefox" ] && [ -e "$dir/firefox/libonnxruntime.so" ]; then
-          execstack --clear-execstack "$dir/firefox/libonnxruntime.so"
-        fi
-      done
+      # Only run execstack on x86_64 (skip on ARM64 and other architectures)
+      if [ "$(uname -m)" = "x86_64" ]; then
+        for dir in $SNAPCRAFT_PART_INSTALL/playwright-browsers/firefox-*; do
+          if [ -d "$dir/firefox" ] && [ -e "$dir/firefox/libonnxruntime.so" ]; then
+            execstack --clear-execstack "$dir/firefox/libonnxruntime.so"
+          fi
+        done
+      fi
       install -m755 punch-completion.bash $SNAPCRAFT_PART_INSTALL/bin/punch-completer
       install -D -m644 "$CRAFT_PART_SRC/CHANGELOG.md" \
         "$CRAFT_PART_INSTALL/usr/share/punch/CHANGELOG.md"
