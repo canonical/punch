@@ -476,3 +476,161 @@ def handle_submit(args, config, tasks_file, console):
     except MissingTimecardsUrl as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
+
+
+def handle_tutorial(console: Console):
+    """
+    Interactive tutorial walking users through punch features.
+    """
+    console.print("\n")
+    console.print("[bold cyan]Welcome to Punch! 👊[/bold cyan]")
+    console.print("[bold cyan]A CLI tool for tracking your tasks and time[/bold cyan]\n")
+
+    sections = [
+        {
+            "title": "🚀 Getting Started",
+            "content": [
+                "Punch helps you track tasks and generate timecards. The basic workflow is:",
+                "  1. Mark the start of your day: [cyan]punch start[/cyan]",
+                "  2. Add tasks as you work: [cyan]punch add[/cyan]",
+                "  3. View your work: [cyan]punch report[/cyan]",
+                "  4. Export and submit: [cyan]punch export[/cyan] and [cyan]punch submit[/cyan]",
+            ]
+        },
+        {
+            "title": "📋 Adding Tasks",
+            "content": [
+                "Add a task by running: [cyan]punch add[/cyan]",
+                "",
+                "You can specify details inline:",
+                "  [cyan]punch add dev : Fix login bug : Added authentication[/cyan]",
+                "",
+                "Or use interactive mode (just type [cyan]punch add[/cyan] with no args).",
+                "",
+                "Format: [yellow]punch add [category] : [task name] : [optional notes][/yellow]",
+                "",
+                "Categories come from your config (run [cyan]punch config wizard[/cyan]).",
+                "Example categories: [cyan]dev[/cyan], [cyan]mtg[/cyan] (meeting), [cyan]admin[/cyan]",
+            ]
+        },
+        {
+            "title": "⏰ Specifying Times",
+            "content": [
+                "Most commands accept a [cyan]-t HH:MM[/cyan] flag to set the start time.",
+                "",
+                "Examples:",
+                "  [cyan]punch start -t 09:00[/cyan]      # Mark day start at 9:00 AM",
+                "  [cyan]punch add -t 10:30 dev : Task[/cyan]  # Log task at 10:30 AM",
+                "",
+                "If you don't specify a time, punch uses the current time.",
+            ]
+        },
+        {
+            "title": "📊 Viewing Your Work",
+            "content": [
+                "Get a report of your tasks:",
+                "  [cyan]punch report[/cyan]                    # Today's report",
+                "  [cyan]punch report -d yesterday[/cyan]      # Yesterday's report",
+                "  [cyan]punch report -d monday[/cyan]        # Last Monday's report",
+                "  [cyan]punch report -f 2025-01-01 -t 2025-01-31[/cyan]  # Date range",
+                "",
+                "Natural language dates work: yesterday, today, monday, tuesday, etc.",
+            ]
+        },
+        {
+            "title": "💾 Exporting Data",
+            "content": [
+                "Export your tasks in different formats:",
+                "  [cyan]punch export --format json[/cyan]      # JSON format (default)",
+                "  [cyan]punch export --format csv[/cyan]       # CSV format",
+                "  [cyan]punch export -d today -o tasks.json[/cyan]  # Save to file",
+                "  [cyan]punch export -f 2025-01-01 -t 2025-01-31[/cyan]  # Date range",
+            ]
+        },
+        {
+            "title": "🏷️ Excluding Time from Reports",
+            "content": [
+                "Mark tasks that shouldn't count as work by ending with [cyan]**[/cyan]:",
+                "  [cyan]punch add admin : lunch**[/cyan]",
+                "  [cyan]punch add admin : break**[/cyan]",
+                "",
+                "These tasks will be excluded from reports and timecard calculations.",
+            ]
+        },
+        {
+            "title": "📅 Weekly Editor",
+            "content": [
+                "Use the interactive weekly editor for a full-week view:",
+                "  [cyan]punch weeklyeditor[/cyan]",
+                "",
+                "Navigate with arrow keys, add tasks with [cyan]a[/cyan], edit with [cyan]e[/cyan],",
+                "delete with [cyan]d[/cyan], and quit with [cyan]q[/cyan].",
+            ]
+        },
+        {
+            "title": "⚙️ Configuration",
+            "content": [
+                "Set up your categories and preferences:",
+                "  [cyan]punch config wizard[/cyan]        # Interactive setup",
+                "  [cyan]punch config show[/cyan]         # View current config",
+                "  [cyan]punch config set key value[/cyan] # Set a value",
+                "  [cyan]punch config edit[/cyan]         # Edit in $EDITOR",
+                "  [cyan]punch config path[/cyan]         # Show config file path",
+            ]
+        },
+        {
+            "title": "🔐 Salesforce Integration",
+            "content": [
+                "Connect to Salesforce and submit timecards:",
+                "  [cyan]punch login[/cyan]              # Log in and store credentials",
+                "  [cyan]punch submit[/cyan]            # Submit today's timecard",
+                "  [cyan]punch submit -d yesterday[/cyan] # Submit yesterday's timecard",
+                "  [cyan]punch submit -n[/cyan]          # Dry-run (preview without submitting)",
+                "  [cyan]punch submit -f DATE -t DATE[/cyan]  # Submit date range",
+            ]
+        },
+        {
+            "title": "💡 Pro Tips",
+            "content": [
+                "• Use [cyan]punch[/cyan] with no args to enter interactive task-add mode",
+                "• Press Tab to autocomplete commands and options",
+                "• Bash/Zsh completion scripts are available:",
+                "    source punch-completion.bash  # or zsh-completion",
+                "• Run [cyan]punch help[/cyan] to see all commands",
+                "• Run [cyan]punch help COMMAND[/cyan] for detailed command help",
+                "• View changelog: [cyan]punch whats-new[/cyan]",
+            ]
+        },
+        {
+            "title": "📚 Common Workflows",
+            "content": [
+                "[yellow]Daily workflow:[/yellow]",
+                "  1. [cyan]punch start[/cyan] (mark day start)",
+                "  2. [cyan]punch add[/cyan] (add tasks throughout the day)",
+                "  3. [cyan]punch report[/cyan] (verify your day)",
+                "",
+                "[yellow]Weekly workflow:[/yellow]",
+                "  1. Use [cyan]punch weeklyeditor[/cyan] to review/edit entire week",
+                "  2. [cyan]punch export -f MONDAY -t FRIDAY[/cyan] to export week",
+                "  3. [cyan]punch submit -f MONDAY -t FRIDAY[/cyan] to submit",
+            ]
+        },
+    ]
+
+    for i, section in enumerate(sections):
+        console.print(f"\n[bold yellow]{section['title']}[/bold yellow]")
+        console.print("[dim]" + "─" * 50 + "[/dim]")
+        for line in section['content']:
+            console.print(line)
+        
+        if i < len(sections) - 1:
+            prompt = console.input("\nPress Enter to continue (or type 'q' to quit): ").strip().lower()
+            if prompt == 'q':
+                console.print("\n[dim]Exiting tutorial. Happy tracking! 👊[/dim]\n")
+                return
+
+    console.print("\n[bold cyan]You've completed the tutorial![/bold cyan]")
+    console.print("[dim]Now try these commands to get started:[/dim]")
+    console.print("  1. [cyan]punch config wizard[/cyan]  - Set up your categories")
+    console.print("  2. [cyan]punch add[/cyan]           - Add your first task")
+    console.print("  3. [cyan]punch report[/cyan]        - View your work\n")

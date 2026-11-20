@@ -143,6 +143,25 @@ def mark_seen(cv: str):
 def show_teaser(cv: str):
     typer.secho(f"🔹 New version: {cv}. Try '{_DISTRIBUTION} whats-new' to read more.", dim=True)
 
+def _get_default_config() -> dict:
+    """
+    Load default config from snap installation if available, otherwise return empty categories.
+    Excludes the full_name field (personal user data).
+    """
+    snap_config_path = Path.home() / "snap/punch/current/.config/punch/punch.yaml"
+    
+    if snap_config_path.exists():
+        try:
+            with open(snap_config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
+            # Remove personal data
+            config.pop("full_name", None)
+            return config
+        except Exception:
+            pass
+    
+    return {"categories": []}
+
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context ):
     """
@@ -156,8 +175,9 @@ def main_callback(ctx: typer.Context ):
     config_path = get_config_path()
     if not os.path.exists(config_path):
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        default_config = _get_default_config()
         with open(config_path, "w") as f:
-            f.write("categories: []\n")
+            yaml.dump(default_config, f, default_flow_style=False, allow_unicode=True)
 
     if ctx.invoked_subcommand is None:
         ctx.invoke(add)
@@ -465,6 +485,15 @@ def whats_new():
         text = "\n".join(out) or f"Version not found ini changelog: {current_ver}."
     
     console.print(text)
+
+@app.command("tutorial")
+def tutorial():
+    """
+    Interactive tutorial walking you through punch features and common workflows.
+    """
+    console = Console()
+    from punch.commands import handle_tutorial
+    handle_tutorial(console)
 
 if __name__ == "__main__":
     app()
