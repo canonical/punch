@@ -27,6 +27,24 @@ app.add_typer(config_app, name="config")
 
 HUMAN_DATE_SHORTCUTS = ["today", "yesterday", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+
+def show_category_error(invalid_category: str, categories: dict, console: Console) -> None:
+    """Display a user-friendly error message for invalid category input."""
+    console.print(f"[red]✗ Category '{invalid_category}' not found.[/red]")
+    console.print()
+    
+    if categories:
+        console.print("[yellow]Available categories:[/yellow]")
+        for cat_name, cat_code in categories.items():
+            console.print(f"  • [cyan]{cat_name}[/cyan] ({cat_code})")
+        console.print()
+    
+    console.print("[dim]Usage:[/dim] punch add <category> : <task> : [notes]")
+    console.print("[dim]Example:[/dim] punch add dev : Fix login bug : Added authentication")
+    console.print()
+    console.print("[dim]For more help: punch tutorial[/dim]")
+
+
 def find_matching_in_shortcuts(value: str) -> Optional[str]:
     result = []
     value_lower = value.lower()
@@ -219,13 +237,23 @@ def add(
     else:
         task_str = ""
 
-    if task_args is None:
-        task = interactive_mode(categories, tasks_file)
-    elif (cn := resolve_category(task_str, categories, console)) is not None:
-        _, name = cn
-        task = interactive_mode(categories, tasks_file, name)
-    else:
-        task = parse_new_task_string(task_str, categories)
+    try:
+        if task_args is None:
+            task = interactive_mode(categories, tasks_file)
+        elif (cn := resolve_category(task_str, categories, console)) is not None:
+            _, name = cn
+            task = interactive_mode(categories, tasks_file, name)
+        else:
+            task = parse_new_task_string(task_str, categories)
+    except ValueError as e:
+        error_msg = str(e)
+        # Extract category name from error message if possible
+        if "Unknown category symbol or name: '" in error_msg:
+            invalid_cat = error_msg.split("'")[1]
+            show_category_error(invalid_cat, categories, console)
+        else:
+            console.print(f"[red]✗ Error: {error_msg}[/red]")
+        raise typer.Exit(1)
 
     if time:
         task.finish = time_to_current_datetime(time)
