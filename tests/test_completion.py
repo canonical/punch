@@ -279,8 +279,12 @@ class TestZshCompletion(CompletionFixture, unittest.TestCase):
             os.close(fd)
 
     def test_interactive_registration_and_quoting(self):
+        insecure = Path(self.temp.name) / "insecure"
+        insecure.mkdir()
+        insecure.chmod(0o777)
         setup = (
-            "autoload -Uz compinit; compinit -D; "
+            f"fpath=({shlex.quote(str(insecure))} $fpath); "
+            "autoload -Uz compinit; compinit -D -i; "
             f"source {shlex.quote(str(ZSH_COMPLETION))}"
         )
         self.run_interactive_completion(setup)
