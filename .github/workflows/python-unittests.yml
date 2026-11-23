@@ -27,6 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           poetry install
           poetry run playwright install --with-deps chromium
+          sudo apt-get install -y zsh
 
       - name: Run unit tests
         run: |
