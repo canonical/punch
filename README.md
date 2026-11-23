@@ -84,6 +84,8 @@ You can edit it directly, use `punch config set/get`, or run `punch config wizar
 
 Bash and Zsh completion scripts are provided in the repo (`punch-completion.bash`, `zsh-completion`).  
 Source them in your shell for tab completion of commands and options.
+Bash completion also suggests export formats, dates, configuration keys, and
+previously logged tasks for a selected category.
 
 ### Examples
 
