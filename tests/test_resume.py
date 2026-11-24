@@ -6,7 +6,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from punch.web import timecard_id, TimecardEntry
+from punch.web import LoginInterruptedError, timecard_id, TimecardEntry
 from punch.commands import (
     _clear_progress,
     _get_progress_path,
@@ -161,6 +161,15 @@ class TestHandleSubmitResume(unittest.TestCase):
         mock_submit.assert_called_once()
         submitted_tcs = mock_submit.call_args[0][1]
         self.assertEqual(submitted_tcs, self.all_timecards)
+
+    def test_interrupted_automatic_login_exits_with_message(self):
+        with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+             patch("punch.commands.submit_timecards", side_effect=LoginInterruptedError("Login interrupted.")), \
+             patch("punch.commands.show_timecards_table"):
+            with self.assertRaises(SystemExit) as result:
+                handle_submit(self._args(), self.config, "tasks.txt", self.console)
+        self.assertEqual(result.exception.code, 1)
+        self.console.print.assert_any_call("[red]Login interrupted.[/red]")
 
     def test_no_resume_passes_on_progress_for_crash_recovery(self):
         # on_progress should be passed even without --resume so a mid-run crash

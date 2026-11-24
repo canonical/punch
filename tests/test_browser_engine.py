@@ -7,6 +7,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from playwright.sync_api import Error as PlaywrightError
+from typer.testing import CliRunner
+
+from punch.ui.cli import app
 from punch.web import BrowserInstallError, BrowserSelectionError, _get_browser_type, _launch_browser
 
 
@@ -120,6 +124,61 @@ class TestBrowserEngine(unittest.TestCase):
                 with patch("punch.web._get_browser_type", return_value=browser):
                     _launch_browser(self.playwright, self.console, False)
                 browser.launch.assert_called_once_with(headless=False)
+
+
+class TestLoginInterruption(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.auth_path = Path(self.temp.name) / "auth.json"
+        self.browser = Mock()
+        self.browser.is_connected.return_value = True
+        self.context = self.browser.new_context.return_value
+        self.page = self.context.new_page.return_value
+        self.page.is_closed.return_value = False
+
+    def invoke_login(self, launch_side_effect=None):
+        with patch("punch.ui.cli.load_config", return_value={"timecards_url": "https://example.test/"}), \
+             patch("punch.web.get_auth_json_path", return_value=str(self.auth_path)), \
+             patch("punch.web.sync_playwright"), \
+             patch("punch.web._launch_browser", return_value=self.browser, side_effect=launch_side_effect):
+            return CliRunner().invoke(app, ["login"])
+
+    def test_closed_page_during_navigation_or_wait_is_reported_without_traceback(self):
+        for operation in ("goto", "wait_for_url"):
+            with self.subTest(operation=operation):
+                self.page.reset_mock()
+                self.context.storage_state.reset_mock()
+                self.page.is_closed.return_value = True
+                getattr(self.page, operation).side_effect = PlaywrightError("Target closed")
+                result = self.invoke_login()
+                self.assertEqual(result.exit_code, 1)
+                self.assertIn("Login interrupted", result.output)
+                self.assertNotIn("Traceback", result.output)
+                self.context.storage_state.assert_not_called()
+                getattr(self.page, operation).side_effect = None
+
+    def test_browser_closed_before_page_creation_is_reported(self):
+        self.browser.is_connected.return_value = False
+        self.context.new_page.side_effect = PlaywrightError("Target closed")
+        result = self.invoke_login()
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Login interrupted", result.output)
+        self.assertNotIn("Traceback", result.output)
+        self.context.storage_state.assert_not_called()
+
+    def test_keyboard_interrupt_is_reported_without_traceback(self):
+        result = self.invoke_login(launch_side_effect=KeyboardInterrupt)
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Login interrupted", result.output)
+        self.assertNotIn("Traceback", result.output)
+
+    def test_unrelated_playwright_error_is_not_treated_as_cancellation(self):
+        self.page.goto.side_effect = PlaywrightError("TLS failure")
+        result = self.invoke_login()
+        self.assertIsInstance(result.exception, PlaywrightError)
+        self.assertIn("TLS failure", str(result.exception))
+        self.assertNotIn("Login interrupted", result.output)
 
 
 if __name__ == "__main__":

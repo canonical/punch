@@ -36,6 +36,7 @@ snap install punch
 - `punch login`  
   Log in to Salesforce and store your session locally. On first use, Punch asks
   you to choose Chromium, Firefox, or WebKit and downloads the selected engine.
+  Close the browser or press Ctrl+C to cancel login.
 
 - `punch submit [options]`  
   Submit timecards to Salesforce. Supports dry-run, interactive/headed mode, and sleep between actions.

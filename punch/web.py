@@ -40,6 +40,9 @@ class BrowserInstallError(Exception):
 class BrowserSelectionError(Exception):
     pass
 
+class LoginInterruptedError(Exception):
+    pass
+
 _BROWSER_ENGINES = (
     ("chromium", "Chromium"),
     ("firefox", "Firefox"),
@@ -158,31 +161,40 @@ def log_redirects(request):
 
 def login_to_site(config, verbose=False):
     console = Console()
-    auth_json_path = get_auth_json_path()
-    timecards_link = get_timecards_link(config)
-    with sync_playwright() as p:
-        browser = _launch_browser(p, console, headless=False)
-        if os.path.exists(auth_json_path):
-            context = browser.new_context(storage_state=auth_json_path)
-            console.print("[cyan]Loaded existing authentication from auth.json[/cyan]")
-        else:
-            context = browser.new_context()
-            console.print("[yellow]No auth.json found, starting fresh browser session[/yellow]")
-        page = context.new_page()
-        if verbose:
-            page.on("request", log_redirects)
+    try:
+        auth_json_path = get_auth_json_path()
+        timecards_link = get_timecards_link(config)
+        with sync_playwright() as p:
+            browser = _launch_browser(p, console, headless=False)
+            page = None
+            try:
+                if os.path.exists(auth_json_path):
+                    context = browser.new_context(storage_state=auth_json_path)
+                    console.print("[cyan]Loaded existing authentication from auth.json[/cyan]")
+                else:
+                    context = browser.new_context()
+                    console.print("[yellow]No auth.json found, starting fresh browser session[/yellow]")
+                page = context.new_page()
+                if verbose:
+                    page.on("request", log_redirects)
 
-        console.print(f"[cyan]Opening login page: {timecards_link}[/cyan]")
-        page.goto(timecards_link)
+                console.print(f"[cyan]Opening login page: {timecards_link}[/cyan]")
+                page.goto(timecards_link)
 
-        console.print(f"[cyan]Waiting for login at {timecards_link}...[/cyan]")
-        page.wait_for_url(timecards_link, timeout=0)
-        console.print("[green]Login successful.[/green]")
+                console.print(f"[cyan]Waiting for login at {timecards_link}...[/cyan]")
+                page.wait_for_url(timecards_link, timeout=0)
+                console.print("[green]Login successful.[/green]")
 
-        context.storage_state(path=auth_json_path)
-        console.print("[green]Login saved to auth.json[/green]")
+                context.storage_state(path=auth_json_path)
+                console.print("[green]Login saved to auth.json[/green]")
+            except playwright_error as error:
+                if not browser.is_connected() or (page is not None and page.is_closed()):
+                    raise LoginInterruptedError("Login interrupted: the browser window or page closed.") from error
+                raise
 
-        browser.close()
+            browser.close()
+    except KeyboardInterrupt as error:
+        raise LoginInterruptedError("Login interrupted.") from error
 
 def select_from_combo(page, value, placeholder, xpath):
     """
