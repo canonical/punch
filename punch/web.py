@@ -1,6 +1,9 @@
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 from playwright.sync_api import sync_playwright, Error as playwright_error
 from punch.tasks import read_tasklog
@@ -9,7 +12,6 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.console import Console
 import re
 from punch.config import get_config_path
-import sys
 
 DRY_RUN_SUFFIX = " (dry run)"
 
@@ -32,6 +34,18 @@ class MissingTimecardsUrl(Exception):
 class AuthFileNotFoundError(Exception):
     pass
 
+class BrowserInstallError(Exception):
+    pass
+
+class BrowserSelectionError(Exception):
+    pass
+
+_BROWSER_ENGINES = (
+    ("chromium", "Chromium"),
+    ("firefox", "Firefox"),
+    ("webkit", "WebKit"),
+)
+
 def get_timecards_link(config):
     """
     Fetch the timecards link from config, or raise if not set.
@@ -48,6 +62,92 @@ def get_auth_json_path():
     os.makedirs(auth_dir, exist_ok=True)
     return os.path.join(auth_dir, "auth.json")
 
+def _get_browser_preference_path():
+    return os.path.join(os.path.dirname(get_auth_json_path()), "browser.json")
+
+def _choose_browser_engine(console):
+    console.print("[bold]Choose a browser engine for Salesforce:[/bold]")
+    for index, (_, label) in enumerate(_BROWSER_ENGINES, 1):
+        console.print(f"  {index}. {label}")
+
+    while True:
+        try:
+            choice = console.input("Browser [1-3]: ").strip()
+        except EOFError as error:
+            raise BrowserSelectionError("Browser selection cancelled.") from error
+        if choice.isdigit() and 1 <= int(choice) <= len(_BROWSER_ENGINES):
+            return _BROWSER_ENGINES[int(choice) - 1][0]
+        console.print("[red]Choose 1, 2, or 3.[/red]")
+
+def _load_browser_engine(console):
+    preference_path = _get_browser_preference_path()
+    if not os.path.exists(preference_path):
+        return None
+    try:
+        with open(preference_path, encoding="utf-8") as preference:
+            engine = json.load(preference).get("engine")
+    except (OSError, json.JSONDecodeError, AttributeError) as error:
+        console.print(f"[yellow]Could not read browser preference: {error}[/yellow]")
+        return None
+
+    if not isinstance(engine, str) or engine not in {name for name, _ in _BROWSER_ENGINES}:
+        console.print("[yellow]Saved browser choice is invalid; choose an engine again.[/yellow]")
+        return None
+    return engine
+
+def _get_browser_type(playwright, console):
+    preference_path = _get_browser_preference_path()
+    engine = _load_browser_engine(console)
+    if engine is None:
+        engine = _choose_browser_engine(console)
+
+    browser_type = getattr(playwright, engine)
+    if not os.path.isfile(browser_type.executable_path):
+        console.print(f"[cyan]Downloading {dict(_BROWSER_ENGINES)[engine]} for Playwright...[/cyan]")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", engine],
+                check=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise BrowserInstallError(
+                f"Failed to download the selected Playwright browser ({engine})."
+            ) from error
+        if not os.path.isfile(browser_type.executable_path):
+            raise BrowserInstallError(
+                f"Playwright reported success, but the {engine} executable was not installed."
+            )
+
+    with open(preference_path, "w", encoding="utf-8") as preference:
+        json.dump({"engine": engine}, preference)
+    return browser_type
+
+def _launch_browser(playwright, console, headless):
+    browser_type = _get_browser_type(playwright, console)
+    if browser_type.name != "webkit" or os.environ.get("SNAP_NAME") != "punch":
+        return browser_type.launch(headless=headless)
+
+    # Playwright's WebKit launcher replaces LD_LIBRARY_PATH, hiding staged Snap libraries.
+    browser_dir = Path(browser_type.executable_path).parent / (
+        "minibrowser-wpe" if headless else "minibrowser-gtk"
+    )
+    env = os.environ.copy()
+    env["WEBKIT_EXEC_PATH"] = str(browser_dir / "bin")
+    env["WEBKIT_INJECTED_BUNDLE_PATH"] = str(browser_dir / "lib")
+    env["WEBKIT_FORCE_COMPLEX_TEXT"] = "1"
+    if headless:
+        env["WEBKIT_INSPECTOR_RESOURCES_PATH"] = str(browser_dir / "share")
+    library_paths = [str(browser_dir / "lib"), str(browser_dir / "sys" / "lib")]
+    if env.get("LD_LIBRARY_PATH"):
+        library_paths.append(env["LD_LIBRARY_PATH"])
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(library_paths)
+    env.setdefault("__EGL_VENDOR_LIBRARY_DIRS", os.path.join(env["SNAP"], "usr/share/glvnd/egl_vendor.d"))
+    return browser_type.launch(
+        headless=headless,
+        executable_path=str(browser_dir / "bin" / "MiniBrowser"),
+        env=env,
+    )
+
 def log_redirects(request):
     from rich.console import Console
     console = Console()
@@ -61,7 +161,7 @@ def login_to_site(config, verbose=False):
     auth_json_path = get_auth_json_path()
     timecards_link = get_timecards_link(config)
     with sync_playwright() as p:
-        browser = p.firefox.launch(headless=False)
+        browser = _launch_browser(p, console, headless=False)
         if os.path.exists(auth_json_path):
             context = browser.new_context(storage_state=auth_json_path)
             console.print("[cyan]Loaded existing authentication from auth.json[/cyan]")
@@ -204,7 +304,7 @@ def submit_timecards(config, timecards, headless=True, interactive=False, dry_ru
 
     suffix = DRY_RUN_SUFFIX if dry_run else ""
     with sync_playwright() as p:
-        browser = p.firefox.launch(headless=headless)
+        browser = _launch_browser(p, console, headless=headless)
         context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
         if context is None:
             return False

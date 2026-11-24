@@ -34,10 +34,16 @@ snap install punch
   Export timecards to CSV or JSON. Supports the same date options as `report`.
 
 - `punch login`  
-  Log in to Salesforce and store your session locally.
+  Log in to Salesforce and store your session locally. On first use, Punch asks
+  you to choose Chromium, Firefox, or WebKit and downloads the selected engine.
 
 - `punch submit [options]`  
   Submit timecards to Salesforce. Supports dry-run, interactive/headed mode, and sleep between actions.
+
+The selected Playwright browser is reused for login and submission. Its preference
+is stored in `browser.json` beside your Punch configuration. Browser downloads
+use Playwright's user cache (or the Snap's persistent user data directory).
+Remove `browser.json` to choose a different engine.
 
 - `punch config <subcommand>`  
   Manage configuration. Subcommands:

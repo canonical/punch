@@ -1,6 +1,7 @@
 # Changelog:
 
 ## next
+* web: defer Playwright browser downloads until first login or submit and let users choose Chromium, Firefox, or WebKit.
 
 ## 0.5.2
 * snap: include `libatomic1` so the Playwright driver can start for `punch login` and `punch submit`.
