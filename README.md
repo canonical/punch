@@ -151,8 +151,11 @@ You do not need to manually save your week. Every time you add, edit, or delete 
 
 Run `poetry run scripts/test_all_cli_options.sh` to smoke-test the installed
 executable, or pass an executable path to test another installation (including a
-snap). Set `PUNCH_TEST_BROWSER=1` to also test login against a local server;
-this requires Playwright's Firefox browser and a graphical display (or Xvfb).
+snap). Set `PUNCH_TEST_BROWSER=1` to also test login against a local server.
+The test defaults to Chromium; set `PUNCH_TEST_BROWSER_CHOICE` to `2` for Firefox
+or `3` for WebKit. It downloads the selected browser if needed and requires a
+graphical display (or Xvfb). To test HTTPS instead of the local server, set
+`PUNCH_TEST_BROWSER_URL` to an HTTPS URL, such as `https://example.com/`.
 The script does not submit timecards or test interactive interfaces.
 
 ## License

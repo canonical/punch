@@ -134,6 +134,11 @@ for options in "-n" "-n --headed" "-n -i" "-n --resume --sleep 0.1"; do
 done
 
 if [ "${PUNCH_TEST_BROWSER:-0}" = "1" ]; then
+    browser_choice=${PUNCH_TEST_BROWSER_CHOICE:-1}
+    case "$browser_choice" in
+        1|2|3) ;;
+        *) echo "PUNCH_TEST_BROWSER_CHOICE must be 1, 2, or 3" >&2; exit 1 ;;
+    esac
     python3 -u - "$test_dir/port" <<'PY' &
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -165,8 +170,9 @@ PY
         echo "Timed out waiting for local login test server" >&2
         exit 1
     fi
-    printf 'timecards_url: http://127.0.0.1:%s/\n' "$(cat "$test_dir/port")" >> "$PUNCH_CONFIG_DIR/punch.yaml"
-    if ! output=$(timeout 60 "$PUNCH" login 2>&1); then
+    login_url=${PUNCH_TEST_BROWSER_URL:-http://127.0.0.1:$(cat "$test_dir/port")/}
+    printf 'timecards_url: %s\n' "$login_url" >> "$PUNCH_CONFIG_DIR/punch.yaml"
+    if ! output=$(printf '%s\n' "$browser_choice" | timeout 300 "$PUNCH" login 2>&1); then
         printf 'Browser login smoke test failed:\n%s\n' "$output" >&2
         exit 1
     fi

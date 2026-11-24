@@ -36,6 +36,8 @@ jobs:
           sudo apt-get install -y xvfb xauth
           sudo snap install --dangerous "$SNAP_PATH"
           PUNCH_TEST_BROWSER=1 xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
+          PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=2 xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
+          PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=3 PUNCH_TEST_BROWSER_URL=https://example.com/ xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
 
       - uses: snapcore/action-publish@v1
         if: github.event_name == 'push'
