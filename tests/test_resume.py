@@ -187,7 +187,7 @@ class TestHandleSubmitResume(unittest.TestCase):
         self.assertEqual(result.exception.code, 1)
         self.console.print.assert_any_call("[red]Submission interrupted.[/red]")
         self.console.print.assert_any_call(
-            "[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]"
+            "[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]"
         )
 
     def test_browser_close_after_partial_submission_exits_and_preserves_progress(self):
@@ -216,7 +216,7 @@ class TestHandleSubmitResume(unittest.TestCase):
         self.assertEqual(result.exception.code, 1)
         self.console.print.assert_any_call("[red]Submission interrupted: the browser window or page closed.[/red]")
         self.console.print.assert_any_call(
-            "[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]"
+            "[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]"
         )
 
     def test_interruption_without_saved_progress_does_not_suggest_resume(self):
