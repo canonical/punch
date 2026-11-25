@@ -73,6 +73,18 @@ class TestBrowserEngine(unittest.TestCase):
         self.console.input.assert_not_called()
         run.assert_not_called()
 
+    def test_preference_write_failure_only_warns(self):
+        Path(self.executable_paths["firefox"]).touch()
+        self.console.input.return_value = "2"
+
+        with patch("punch.web.os.replace", side_effect=PermissionError("read-only")):
+            selected = _get_browser_type(self.playwright, self.console)
+
+        self.assertIs(selected, self.playwright.firefox)
+        self.assertFalse(os.path.exists(self.preference_path))
+        self.assertFalse(os.path.exists(f"{self.preference_path}.tmp"))
+        self.console.print.assert_any_call("[yellow]Could not save browser preference: read-only[/yellow]")
+
     def test_install_failure_is_reported(self):
         self.console.input.return_value = "1"
         with patch(

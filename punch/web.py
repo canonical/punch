@@ -142,9 +142,21 @@ def _get_browser_type(playwright, console):
                 f"Playwright reported success, but the {engine} executable was not installed."
             )
 
-    with open(preference_path, "w", encoding="utf-8") as preference:
-        json.dump({"engine": engine}, preference)
+    _save_browser_engine(console, preference_path, engine)
     return browser_type
+
+def _save_browser_engine(console, preference_path, engine):
+    temporary_path = f"{preference_path}.tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as preference:
+            json.dump({"engine": engine}, preference)
+        os.replace(temporary_path, preference_path)
+    except OSError as error:
+        console.print(f"[yellow]Could not save browser preference: {error}[/yellow]")
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
 
 def _launch_browser(playwright, console, headless):
     browser_type = _get_browser_type(playwright, console)
