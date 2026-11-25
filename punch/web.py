@@ -167,9 +167,8 @@ def _launch_browser(playwright, console, headless):
         return _launch_browser_type(browser_type, headless)
     except playwright_error as error:
         message = f"Failed to launch {browser_type.name}"
-        summary = _summarize_playwright_error(error)
-        if summary:
-            message += f": {summary}"
+        if str(error).strip():
+            message += f":\n{error}"
         if os.environ.get("SNAP_NAME") != "punch":
             message += (
                 f"\nIf system libraries are missing, run "
@@ -177,18 +176,6 @@ def _launch_browser(playwright, console, headless):
                 "by removing browser.json."
             )
         raise BrowserLaunchError(message) from error
-
-def _summarize_playwright_error(error):
-    """Return the first meaningful line of a Playwright error.
-
-    Playwright prefixes messages with the API name and often wraps the
-    details in a box drawn with Unicode characters.
-    """
-    for line in str(error).splitlines():
-        line = re.sub(r"^\s*\w+\.\w+:", "", line).strip(" \t║╔╗╚╝═")
-        if line:
-            return line
-    return ""
 
 def _launch_browser_type(browser_type, headless):
     if browser_type.name != "webkit" or os.environ.get("SNAP_NAME") != "punch":

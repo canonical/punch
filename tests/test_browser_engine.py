@@ -189,10 +189,22 @@ class TestBrowserEngine(unittest.TestCase):
                 with self.assertRaises(BrowserLaunchError) as raised:
                     _launch_browser(self.playwright, self.console, False)
                 message = str(raised.exception)
-                self.assertTrue(message.startswith("Failed to launch webkit: Host system is missing dependencies to run browsers."))
-                self.assertNotIn("║", message)
-                self.assertNotIn("libicu74", message)
+                self.assertIn("Failed to launch webkit", message)
+                self.assertIn("Host system is missing dependencies to run browsers.", message)
+                self.assertIn("libicu74", message)
                 self.assertEqual("playwright install-deps webkit" in message, expects_hint)
+
+    def test_launch_failure_preserves_browser_logs(self):
+        browser = Mock()
+        browser.name = "chromium"
+        browser.launch.side_effect = PlaywrightError(
+            "BrowserType.launch: Target page, context or browser has been closed\n"
+            "Browser logs:\n[pid=123][err] error while loading shared libraries: libexample.so"
+        )
+        with patch("punch.web._get_browser_type", return_value=browser):
+            with self.assertRaises(BrowserLaunchError) as raised:
+                _launch_browser(self.playwright, self.console, False)
+        self.assertIn("[pid=123][err] error while loading shared libraries: libexample.so", str(raised.exception))
 
     def test_snap_webkit_without_snap_dir_skips_egl_default(self):
         browser = Mock()
@@ -258,6 +270,14 @@ class TestLoginInterruption(unittest.TestCase):
         result = self.invoke_login(launch_side_effect=KeyboardInterrupt)
         self.assertEqual(result.exit_code, 1)
         self.assertIn("Login interrupted", result.output)
+        self.assertNotIn("Traceback", result.output)
+
+    def test_launch_error_prints_browser_logs_without_interpreting_markup(self):
+        result = self.invoke_login(launch_side_effect=BrowserLaunchError(
+            "Failed to launch chromium:\n[pid=123][err] missing libexample.so"
+        ))
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("[pid=123][err] missing libexample.so", result.output)
         self.assertNotIn("Traceback", result.output)
 
     def test_keyboard_interrupt_masked_by_driver_shutdown_is_reported(self):

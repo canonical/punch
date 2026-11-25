@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 from rich.console import Console
+from rich.markup import escape
 from rich.tree import Tree
 from rich.syntax import Syntax
 import yaml
@@ -300,7 +301,7 @@ def handle_login(args, config, console):
     try:
         login_to_site(config, args.verbose)
     except (BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
-        console.print(f"[red]{e}[/red]")
+        console.print(f"[red]{escape(str(e))}[/red]")
         sys.exit(1)
 
 def show_timecards_table(timecards, title="Timecards for submission"):
@@ -475,7 +476,7 @@ def handle_submit(args, config, tasks_file, console):
             console.print("[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]")
         sys.exit(1)
     except (BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
-        console.print(f"[red]{e}[/red]")
+        console.print(f"[red]{escape(str(e))}[/red]")
         sys.exit(1)
 
 
