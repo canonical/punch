@@ -167,6 +167,15 @@ class TestBrowserEngine(unittest.TestCase):
                 self.assertNotIn("libicu74", message)
                 self.assertEqual("playwright install-deps webkit" in message, expects_hint)
 
+    def test_snap_webkit_without_snap_dir_skips_egl_default(self):
+        browser = Mock()
+        browser.name = "webkit"
+        browser.executable_path = "/browsers/webkit/pw_run.sh"
+        with patch("punch.web._get_browser_type", return_value=browser), \
+             patch.dict(os.environ, {"SNAP_NAME": "punch"}, clear=True):
+            _launch_browser(self.playwright, self.console, False)
+        self.assertNotIn("__EGL_VENDOR_LIBRARY_DIRS", browser.launch.call_args.kwargs["env"])
+
     def test_other_browser_launches_are_unchanged(self):
         for name, environment in (("webkit", {}), ("chromium", {"SNAP_NAME": "punch"})):
             with self.subTest(name=name), patch.dict(os.environ, environment, clear=True):

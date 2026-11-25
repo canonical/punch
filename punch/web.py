@@ -193,7 +193,8 @@ def _launch_browser_type(browser_type, headless):
     if env.get("LD_LIBRARY_PATH"):
         library_paths.append(env["LD_LIBRARY_PATH"])
     env["LD_LIBRARY_PATH"] = os.pathsep.join(library_paths)
-    env.setdefault("__EGL_VENDOR_LIBRARY_DIRS", os.path.join(env["SNAP"], "usr/share/glvnd/egl_vendor.d"))
+    if env.get("SNAP"):
+        env.setdefault("__EGL_VENDOR_LIBRARY_DIRS", os.path.join(env["SNAP"], "usr/share/glvnd/egl_vendor.d"))
     return browser_type.launch(
         headless=headless,
         executable_path=str(browser_dir / "bin" / "MiniBrowser"),
