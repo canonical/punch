@@ -177,7 +177,11 @@ class TestBrowserEngine(unittest.TestCase):
         browser.name = "webkit"
         browser.executable_path = "/browsers/webkit/pw_run.sh"
         browser.launch.side_effect = PlaywrightError(
-            "BrowserType.launch: Host system is missing dependencies to run browsers.\n  libicu74"
+            "BrowserType.launch: \n"
+            "╔══════════════════════════════════════════════════════╗\n"
+            "║ Host system is missing dependencies to run browsers. ║\n"
+            "║     sudo apt-get install libicu74                    ║\n"
+            "╚══════════════════════════════════════════════════════╝"
         )
         for environment, expects_hint in (({}, True), ({"SNAP_NAME": "punch", "SNAP": "/snap/punch/1"}, False)):
             with self.subTest(environment=environment), patch.dict(os.environ, environment, clear=True), \
@@ -185,7 +189,8 @@ class TestBrowserEngine(unittest.TestCase):
                 with self.assertRaises(BrowserLaunchError) as raised:
                     _launch_browser(self.playwright, self.console, False)
                 message = str(raised.exception)
-                self.assertIn("Failed to launch webkit: BrowserType.launch: Host system is missing", message)
+                self.assertTrue(message.startswith("Failed to launch webkit: Host system is missing dependencies to run browsers."))
+                self.assertNotIn("║", message)
                 self.assertNotIn("libicu74", message)
                 self.assertEqual("playwright install-deps webkit" in message, expects_hint)
 
