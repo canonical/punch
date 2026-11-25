@@ -5,6 +5,7 @@
 * web: fall back to Firefox when no browser choice can be read from non-interactive input.
 * web: report Ctrl+C during login or submit without a traceback, and suggest `--resume` after an interrupted submission.
 * web: preserve Playwright's browser launch diagnostics in error messages.
+* web: install Chromium's headless shell when it is missing during submission.
 
 ## 0.5.2
 * snap: include `libatomic1` so the Playwright driver can start for `punch login` and `punch submit`.

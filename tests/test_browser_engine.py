@@ -206,6 +206,65 @@ class TestBrowserEngine(unittest.TestCase):
                 _launch_browser(self.playwright, self.console, False)
         self.assertIn("[pid=123][err] error while loading shared libraries: libexample.so", str(raised.exception))
 
+    def test_missing_chromium_headless_shell_is_installed_and_launch_retried(self):
+        browser = Mock()
+        browser.name = "chromium"
+        launched = Mock()
+        browser.launch.side_effect = [
+            PlaywrightError("BrowserType.launch: Executable doesn't exist at /cache/chromium_headless_shell/chrome"),
+            launched,
+        ]
+        with patch("punch.web._get_browser_type", return_value=browser), \
+             patch("punch.web.subprocess.run") as run:
+            result = _launch_browser(self.playwright, self.console, True)
+
+        self.assertIs(result, launched)
+        self.assertEqual(browser.launch.call_count, 2)
+        self.assertEqual(run.call_args.args[0][-2:], ["install", "chromium"])
+        self.assertTrue(run.call_args.kwargs["check"])
+
+    def test_missing_chromium_shell_download_failure_is_reported(self):
+        browser = Mock()
+        browser.name = "chromium"
+        browser.launch.side_effect = PlaywrightError(
+            "BrowserType.launch: Executable doesn't exist at /cache/chromium_headless_shell/chrome"
+        )
+        with patch("punch.web._get_browser_type", return_value=browser), \
+             patch("punch.web.subprocess.run", side_effect=subprocess.CalledProcessError(1, ["playwright"])):
+            with self.assertRaises(BrowserInstallError):
+                _launch_browser(self.playwright, self.console, True)
+        browser.launch.assert_called_once()
+
+    def test_missing_chromium_shell_retry_is_limited(self):
+        browser = Mock()
+        browser.name = "chromium"
+        browser.launch.side_effect = PlaywrightError(
+            "BrowserType.launch: Executable doesn't exist at /cache/chromium_headless_shell/chrome"
+        )
+        with patch("punch.web._get_browser_type", return_value=browser), \
+             patch("punch.web.subprocess.run") as run:
+            with self.assertRaises(BrowserLaunchError):
+                _launch_browser(self.playwright, self.console, True)
+        self.assertEqual(browser.launch.call_count, 2)
+        run.assert_called_once()
+
+    def test_other_launch_errors_do_not_trigger_chromium_install(self):
+        for name, headless, message in (
+            ("chromium", False, "BrowserType.launch: Executable doesn't exist at /cache/chrome"),
+            ("firefox", True, "BrowserType.launch: Executable doesn't exist at /cache/firefox"),
+            ("chromium", True, "BrowserType.launch: Host system is missing dependencies"),
+        ):
+            with self.subTest(name=name, headless=headless):
+                browser = Mock()
+                browser.name = name
+                browser.launch.side_effect = PlaywrightError(message)
+                with patch("punch.web._get_browser_type", return_value=browser), \
+                     patch("punch.web.subprocess.run") as run:
+                    with self.assertRaises(BrowserLaunchError):
+                        _launch_browser(self.playwright, self.console, headless)
+                run.assert_not_called()
+                browser.launch.assert_called_once()
+
     def test_snap_webkit_without_snap_dir_skips_egl_default(self):
         browser = Mock()
         browser.name = "webkit"

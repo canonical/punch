@@ -130,16 +130,7 @@ def _get_browser_type(playwright, console):
 
     browser_type = getattr(playwright, engine)
     if not os.path.isfile(browser_type.executable_path):
-        console.print(f"[cyan]Downloading {dict(_BROWSER_ENGINES)[engine]} for Playwright...[/cyan]")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "playwright", "install", engine],
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            raise BrowserInstallError(
-                f"Failed to download the selected Playwright browser ({engine})."
-            ) from error
+        _install_browser_engine(engine, console)
         if not os.path.isfile(browser_type.executable_path):
             raise BrowserInstallError(
                 f"Playwright reported success, but the {engine} executable was not installed."
@@ -147,6 +138,18 @@ def _get_browser_type(playwright, console):
 
     _save_browser_engine(console, preference_path, engine)
     return browser_type
+
+def _install_browser_engine(engine, console):
+    console.print(f"[cyan]Downloading {dict(_BROWSER_ENGINES)[engine]} for Playwright...[/cyan]")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", engine],
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise BrowserInstallError(
+            f"Failed to download the selected Playwright browser ({engine})."
+        ) from error
 
 def _save_browser_engine(console, preference_path, engine):
     temporary_path = f"{preference_path}.tmp"
@@ -164,7 +167,18 @@ def _save_browser_engine(console, preference_path, engine):
 def _launch_browser(playwright, console, headless):
     browser_type = _get_browser_type(playwright, console)
     try:
-        return _launch_browser_type(browser_type, headless)
+        try:
+            return _launch_browser_type(browser_type, headless)
+        except playwright_error as error:
+            # Playwright's executable_path checks headed Chromium, not its headless shell.
+            if not (
+                headless
+                and browser_type.name == "chromium"
+                and str(error).startswith("BrowserType.launch: Executable doesn't exist at ")
+            ):
+                raise
+            _install_browser_engine("chromium", console)
+            return _launch_browser_type(browser_type, headless)
     except playwright_error as error:
         message = f"Failed to launch {browser_type.name}"
         if str(error).strip():
