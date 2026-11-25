@@ -87,9 +87,12 @@ def _choose_browser_engine(console):
     for index, (_, label) in enumerate(_BROWSER_ENGINES, 1):
         console.print(f"  {index}. {label}")
 
+    count = len(_BROWSER_ENGINES)
+    numbers = [str(index) for index in range(1, count + 1)]
+    choices = numbers[0] if count == 1 else f"{', '.join(numbers[:-1])}{',' if count > 2 else ''} or {numbers[-1]}"
     while True:
         try:
-            choice = console.input("Browser [1-3]: ").strip()
+            choice = console.input(f"Browser [1-{count}]: ").strip()
         except EOFError as error:
             if _stdin_is_terminal():
                 raise BrowserSelectionError("Browser selection cancelled.") from error
@@ -99,9 +102,9 @@ def _choose_browser_engine(console):
                 "Remove browser.json to choose a different engine.[/yellow]"
             )
             return _DEFAULT_BROWSER_ENGINE
-        if choice.isdigit() and 1 <= int(choice) <= len(_BROWSER_ENGINES):
+        if choice.isdigit() and 1 <= int(choice) <= count:
             return _BROWSER_ENGINES[int(choice) - 1][0]
-        console.print("[red]Choose 1, 2, or 3.[/red]")
+        console.print(f"[red]Choose {choices}.[/red]")
 
 def _load_browser_engine(console):
     preference_path = _get_browser_preference_path()

@@ -62,6 +62,28 @@ class TestBrowserEngine(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         self.assertEqual(json.loads(Path(self.preference_path).read_text()), {"engine": "firefox"})
 
+    def test_prompt_text_follows_engine_list(self):
+        Path(self.executable_paths["chromium"]).touch()
+        Path(self.executable_paths["firefox"]).touch()
+        self.console.input.side_effect = ["9", "2"]
+        engines = (("chromium", "Chromium"), ("firefox", "Firefox"))
+
+        with patch("punch.web._BROWSER_ENGINES", engines):
+            selected = _get_browser_type(self.playwright, self.console)
+
+        self.assertIs(selected, self.playwright.firefox)
+        self.console.input.assert_called_with("Browser [1-2]: ")
+        self.console.print.assert_any_call("[red]Choose 1 or 2.[/red]")
+
+    def test_invalid_choice_lists_all_engines(self):
+        Path(self.executable_paths["webkit"]).touch()
+        self.console.input.side_effect = ["0", "3"]
+
+        _get_browser_type(self.playwright, self.console)
+
+        self.console.input.assert_called_with("Browser [1-3]: ")
+        self.console.print.assert_any_call("[red]Choose 1, 2, or 3.[/red]")
+
     def test_reuses_installed_saved_choice_without_prompt(self):
         Path(self.executable_paths["webkit"]).touch()
         Path(self.preference_path).write_text('{"engine": "webkit"}')
