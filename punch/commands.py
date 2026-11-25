@@ -473,7 +473,7 @@ def handle_submit(args, config, tasks_file, console):
     except SubmitInterruptedError as e:
         console.print(f"[red]{e}[/red]")
         if not args.dry_run and submitted_ids:
-            console.print("[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]")
+            console.print("[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]")
         sys.exit(1)
     except (BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
         console.print(f"[red]{escape(str(e))}[/red]")
