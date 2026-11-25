@@ -37,7 +37,18 @@ jobs:
           sudo snap install --dangerous "$SNAP_PATH"
           PUNCH_TEST_BROWSER=1 xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
           PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=2 xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
-          PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=3 PUNCH_TEST_BROWSER_URL=https://example.com/ xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
+          PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=3 xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
+
+      - name: Test Snap WebKit over HTTPS
+        run: |
+          # Exercises WebKit's TLS stack against a real CA-signed site. Skip
+          # rather than fail when the external site is unreachable.
+          url=https://example.com/
+          if ! curl -fsS --max-time 20 --retry 3 --retry-all-errors -o /dev/null "$url"; then
+            echo "::warning::$url is unreachable; skipping the WebKit HTTPS check."
+            exit 0
+          fi
+          PUNCH_TEST_BROWSER=1 PUNCH_TEST_BROWSER_CHOICE=3 PUNCH_TEST_BROWSER_URL="$url" xvfb-run -a scripts/test_all_cli_options.sh /snap/bin/punch
 
       - uses: snapcore/action-publish@v1
         if: github.event_name == 'push'
