@@ -387,6 +387,32 @@ class TestSubmitInterruption(unittest.TestCase):
         with self.assertRaisesRegex(SubmitInterruptedError, "Submission interrupted"):
             self.submit(playwright_cm, launch_side_effect=KeyboardInterrupt)
 
+    def test_browser_disconnection_during_navigation_is_an_interruption(self):
+        browser = MagicMock()
+        browser.is_connected.return_value = False
+        browser.new_context.return_value.new_page.return_value.is_closed.return_value = False
+        with patch("punch.web._login_to_timecards", side_effect=PlaywrightError("Target closed")):
+            with self.assertRaisesRegex(SubmitInterruptedError, "browser window or page closed"):
+                self.submit(launch_side_effect=lambda *args, **kwargs: browser)
+
+    def test_browser_closure_masked_by_driver_shutdown_preserves_message(self):
+        browser = MagicMock()
+        browser.is_connected.return_value = False
+        playwright_cm = MagicMock()
+        playwright_cm.return_value.__exit__.side_effect = PlaywrightError("Connection closed")
+        with patch("punch.web._get_browser_context", side_effect=PlaywrightError("Target closed")):
+            with self.assertRaisesRegex(SubmitInterruptedError, "browser window or page closed"):
+                self.submit(playwright_cm, launch_side_effect=lambda *args, **kwargs: browser)
+
+    def test_unrelated_error_during_submission_is_not_treated_as_browser_closure(self):
+        browser = MagicMock()
+        browser.is_connected.return_value = True
+        browser.new_context.return_value.new_page.return_value.is_closed.return_value = False
+        with patch("punch.web._login_to_timecards", return_value=True), \
+             patch("punch.web._submit_entries_with_progress", side_effect=PlaywrightError("Form timeout")):
+            with self.assertRaisesRegex(PlaywrightError, "Form timeout"):
+                self.submit(launch_side_effect=lambda *args, **kwargs: browser)
+
     def test_unrelated_playwright_error_propagates(self):
         with self.assertRaises(PlaywrightError):
             self.submit(launch_side_effect=PlaywrightError("Host system is missing dependencies"))

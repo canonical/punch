@@ -404,38 +404,44 @@ def submit_timecards(config, timecards, headless=True, interactive=False, dry_ru
     try:
         with sync_playwright() as p:
             browser = _launch_browser(p, console, headless=headless)
-            context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
-            if context is None:
-                return False
-
-            page = context.new_page()
-            if verbose:
-                page.on("request", log_redirects)
-        
-            if _login_to_timecards(console, page, config):
-                console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
-
+            page = None
             try:
-                _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
-            except playwright_error:
-                console.print("[red]The browser window was closed before submission could complete.[/red]")
-                return False
+                context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
+                if context is None:
+                    return False
 
-            if not interactive:
-                _cancel_edit(page)
-                console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
-                browser.close()
-            else:
-                console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
-                console.print("[yellow]Close the browser window when done.[/yellow]")
-                page.wait_for_event("close", timeout=0)
+                page = context.new_page()
+                if verbose:
+                    page.on("request", log_redirects)
+        
+                if _login_to_timecards(console, page, config):
+                    console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
+
+                _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
+
+                if not interactive:
+                    _cancel_edit(page)
+                    console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
+                    browser.close()
+                else:
+                    console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
+                    console.print("[yellow]Close the browser window when done.[/yellow]")
+                    page.wait_for_event("close", timeout=0)
+            except playwright_error as error:
+                if not browser.is_connected() or (page is not None and page.is_closed()):
+                    raise SubmitInterruptedError(
+                        "Submission interrupted: the browser window or page closed."
+                    ) from error
+                raise
 
     except KeyboardInterrupt as error:
         raise SubmitInterruptedError("Submission interrupted.") from error
     except playwright_error as error:
-        if _find_interruption(error) is None:
+        interruption = _find_interruption(error)
+        if interruption is None:
             raise
-        raise SubmitInterruptedError("Submission interrupted.") from error
+        message = str(interruption) if isinstance(interruption, SubmitInterruptedError) else "Submission interrupted."
+        raise SubmitInterruptedError(message) from error
 
     return True
 
