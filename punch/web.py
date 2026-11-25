@@ -40,6 +40,9 @@ class BrowserInstallError(Exception):
 class BrowserSelectionError(Exception):
     pass
 
+class BrowserLaunchError(Exception):
+    pass
+
 class LoginInterruptedError(Exception):
     pass
 
@@ -145,6 +148,22 @@ def _get_browser_type(playwright, console):
 
 def _launch_browser(playwright, console, headless):
     browser_type = _get_browser_type(playwright, console)
+    try:
+        return _launch_browser_type(browser_type, headless)
+    except playwright_error as error:
+        details = str(error).strip().splitlines()
+        message = f"Failed to launch {browser_type.name}"
+        if details:
+            message += f": {details[0]}"
+        if os.environ.get("SNAP_NAME") != "punch":
+            message += (
+                f"\nIf system libraries are missing, run "
+                f"'playwright install-deps {browser_type.name}' or choose another engine "
+                "by removing browser.json."
+            )
+        raise BrowserLaunchError(message) from error
+
+def _launch_browser_type(browser_type, headless):
     if browser_type.name != "webkit" or os.environ.get("SNAP_NAME") != "punch":
         return browser_type.launch(headless=headless)
 

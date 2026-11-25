@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from punch.ui.cli import app
 from punch.web import (
     BrowserInstallError,
+    BrowserLaunchError,
     BrowserSelectionError,
     SubmitInterruptedError,
     TimecardEntry,
@@ -136,6 +137,23 @@ class TestBrowserEngine(unittest.TestCase):
                     self.assertEqual(kwargs["env"]["__EGL_VENDOR_LIBRARY_DIRS"], "/snap/punch/1/usr/share/glvnd/egl_vendor.d")
                     if headless:
                         self.assertEqual(kwargs["env"]["WEBKIT_INSPECTOR_RESOURCES_PATH"], f"{base}/share")
+
+    def test_launch_failure_is_reported_with_hint(self):
+        browser = Mock()
+        browser.name = "webkit"
+        browser.executable_path = "/browsers/webkit/pw_run.sh"
+        browser.launch.side_effect = PlaywrightError(
+            "BrowserType.launch: Host system is missing dependencies to run browsers.\n  libicu74"
+        )
+        for environment, expects_hint in (({}, True), ({"SNAP_NAME": "punch", "SNAP": "/snap/punch/1"}, False)):
+            with self.subTest(environment=environment), patch.dict(os.environ, environment, clear=True), \
+                 patch("punch.web._get_browser_type", return_value=browser):
+                with self.assertRaises(BrowserLaunchError) as raised:
+                    _launch_browser(self.playwright, self.console, False)
+                message = str(raised.exception)
+                self.assertIn("Failed to launch webkit: BrowserType.launch: Host system is missing", message)
+                self.assertNotIn("libicu74", message)
+                self.assertEqual("playwright install-deps webkit" in message, expects_hint)
 
     def test_other_browser_launches_are_unchanged(self):
         for name, environment in (("webkit", {}), ("chromium", {"SNAP_NAME": "punch"})):
