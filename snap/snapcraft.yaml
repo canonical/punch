@@ -28,7 +28,6 @@ apps:
     environment:
       PLAYWRIGHT_BROWSERS_PATH: $SNAP_USER_COMMON/playwright-browsers
       XKB_CONFIG_ROOT: $SNAP/usr/share/X11/xkb
-      XDG_DATA_DIRS: $SNAP/usr/share:$XDG_DATA_DIRS
       GIO_EXTRA_MODULES: $SNAP/usr/lib/punch-gio-modules
 
 adopt-info: punch
