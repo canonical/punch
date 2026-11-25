@@ -6,7 +6,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from punch.web import LoginInterruptedError, timecard_id, TimecardEntry
+from punch.web import LoginInterruptedError, SubmitInterruptedError, timecard_id, TimecardEntry
 from punch.commands import (
     _clear_progress,
     _get_progress_path,
@@ -170,6 +170,23 @@ class TestHandleSubmitResume(unittest.TestCase):
                 handle_submit(self._args(), self.config, "tasks.txt", self.console)
         self.assertEqual(result.exception.code, 1)
         self.console.print.assert_any_call("[red]Login interrupted.[/red]")
+
+    def test_interrupted_submission_suggests_resume(self):
+        def interrupted(*args, on_progress=None, **kwargs):
+            on_progress(timecard_id(self.tc1))
+            raise SubmitInterruptedError("Submission interrupted.")
+
+        with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+             patch("punch.commands.submit_timecards", side_effect=interrupted), \
+             patch("punch.commands.show_timecards_table"), \
+             patch("punch.commands.get_config_path", return_value=self.config_path):
+            with self.assertRaises(SystemExit) as result:
+                handle_submit(self._args(), self.config, "tasks.txt", self.console)
+        self.assertEqual(result.exception.code, 1)
+        self.console.print.assert_any_call("[red]Submission interrupted.[/red]")
+        self.console.print.assert_any_call(
+            "[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]"
+        )
 
     def test_no_resume_passes_on_progress_for_crash_recovery(self):
         # on_progress should be passed even without --resume so a mid-run crash

@@ -44,7 +44,8 @@ snap install punch
 The selected Playwright browser is reused for login and submission. Its preference
 is stored in `browser.json` beside your Punch configuration. Browser downloads
 use Playwright's user cache (or the Snap's persistent user data directory).
-Remove `browser.json` to choose a different engine.
+Remove `browser.json` to choose a different engine. When input is not a terminal
+and no choice is provided (for example in scripts), Punch uses Firefox.
 
 - `punch config <subcommand>`  
   Manage configuration. Subcommands:

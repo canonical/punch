@@ -5,13 +5,21 @@ import subprocess
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from playwright.sync_api import Error as PlaywrightError
 from typer.testing import CliRunner
 
 from punch.ui.cli import app
-from punch.web import BrowserInstallError, BrowserSelectionError, _get_browser_type, _launch_browser
+from punch.web import (
+    BrowserInstallError,
+    BrowserSelectionError,
+    SubmitInterruptedError,
+    TimecardEntry,
+    _get_browser_type,
+    _launch_browser,
+    submit_timecards,
+)
 
 
 class TestBrowserEngine(unittest.TestCase):
@@ -75,13 +83,26 @@ class TestBrowserEngine(unittest.TestCase):
 
         self.assertFalse(os.path.exists(self.preference_path))
 
-    def test_selection_can_be_cancelled(self):
+    def test_selection_can_be_cancelled_at_terminal(self):
         self.console.input.side_effect = EOFError
 
-        with self.assertRaisesRegex(BrowserSelectionError, "selection cancelled"):
-            _get_browser_type(self.playwright, self.console)
+        with patch("punch.web._stdin_is_terminal", return_value=True):
+            with self.assertRaisesRegex(BrowserSelectionError, "selection cancelled"):
+                _get_browser_type(self.playwright, self.console)
 
         self.assertFalse(os.path.exists(self.preference_path))
+
+    def test_non_interactive_input_without_choice_defaults_to_firefox(self):
+        Path(self.executable_paths["firefox"]).touch()
+        self.console.input.side_effect = ["y", EOFError]
+
+        with patch("punch.web._stdin_is_terminal", return_value=False), \
+             patch("punch.web.subprocess.run") as run:
+            selected = _get_browser_type(self.playwright, self.console)
+
+        self.assertIs(selected, self.playwright.firefox)
+        run.assert_not_called()
+        self.assertEqual(json.loads(Path(self.preference_path).read_text()), {"engine": "firefox"})
 
     def test_invalid_saved_choice_prompts_again(self):
         Path(self.preference_path).write_text('{"engine": "unknown"}')
@@ -173,12 +194,57 @@ class TestLoginInterruption(unittest.TestCase):
         self.assertIn("Login interrupted", result.output)
         self.assertNotIn("Traceback", result.output)
 
+    def test_keyboard_interrupt_masked_by_driver_shutdown_is_reported(self):
+        self.page.wait_for_url.side_effect = KeyboardInterrupt
+        playwright_cm = MagicMock()
+        playwright_cm.return_value.__exit__.side_effect = PlaywrightError("Connection closed")
+        with patch("punch.ui.cli.load_config", return_value={"timecards_url": "https://example.test/"}), \
+             patch("punch.web.get_auth_json_path", return_value=str(self.auth_path)), \
+             patch("punch.web.sync_playwright", playwright_cm), \
+             patch("punch.web._launch_browser", return_value=self.browser):
+            result = CliRunner().invoke(app, ["login"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Login interrupted", result.output)
+        self.assertNotIn("Traceback", result.output)
+
     def test_unrelated_playwright_error_is_not_treated_as_cancellation(self):
         self.page.goto.side_effect = PlaywrightError("TLS failure")
         result = self.invoke_login()
         self.assertIsInstance(result.exception, PlaywrightError)
         self.assertIn("TLS failure", str(result.exception))
         self.assertNotIn("Login interrupted", result.output)
+
+
+class TestSubmitInterruption(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.auth_path = Path(self.temp.name) / "auth.json"
+        self.auth_path.write_text("{}")
+        import datetime
+        self.timecards = [TimecardEntry(
+            "00000001", "Owner", 30, datetime.date(2026, 1, 1), datetime.time(9, 0), "work", "desc"
+        )]
+
+    def submit(self, playwright_cm=None, launch_side_effect=None):
+        with patch("punch.web.get_auth_json_path", return_value=str(self.auth_path)), \
+             patch("punch.web.sync_playwright", playwright_cm or MagicMock()), \
+             patch("punch.web._launch_browser", side_effect=launch_side_effect):
+            return submit_timecards({"timecards_url": "https://example.test/"}, self.timecards)
+
+    def test_keyboard_interrupt_during_browser_selection(self):
+        with self.assertRaisesRegex(SubmitInterruptedError, "Submission interrupted"):
+            self.submit(launch_side_effect=KeyboardInterrupt)
+
+    def test_keyboard_interrupt_masked_by_driver_shutdown(self):
+        playwright_cm = MagicMock()
+        playwright_cm.return_value.__exit__.side_effect = PlaywrightError("Connection closed")
+        with self.assertRaisesRegex(SubmitInterruptedError, "Submission interrupted"):
+            self.submit(playwright_cm, launch_side_effect=KeyboardInterrupt)
+
+    def test_unrelated_playwright_error_propagates(self):
+        with self.assertRaises(PlaywrightError):
+            self.submit(launch_side_effect=PlaywrightError("Host system is missing dependencies"))
 
 
 if __name__ == "__main__":

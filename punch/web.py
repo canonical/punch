@@ -43,11 +43,16 @@ class BrowserSelectionError(Exception):
 class LoginInterruptedError(Exception):
     pass
 
+class SubmitInterruptedError(Exception):
+    pass
+
 _BROWSER_ENGINES = (
     ("chromium", "Chromium"),
     ("firefox", "Firefox"),
     ("webkit", "WebKit"),
 )
+# Engine used before the choice existed; applied when no choice can be read from stdin.
+_DEFAULT_BROWSER_ENGINE = "firefox"
 
 def get_timecards_link(config):
     """
@@ -68,6 +73,12 @@ def get_auth_json_path():
 def _get_browser_preference_path():
     return os.path.join(os.path.dirname(get_auth_json_path()), "browser.json")
 
+def _stdin_is_terminal():
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
 def _choose_browser_engine(console):
     console.print("[bold]Choose a browser engine for Salesforce:[/bold]")
     for index, (_, label) in enumerate(_BROWSER_ENGINES, 1):
@@ -77,7 +88,14 @@ def _choose_browser_engine(console):
         try:
             choice = console.input("Browser [1-3]: ").strip()
         except EOFError as error:
-            raise BrowserSelectionError("Browser selection cancelled.") from error
+            if _stdin_is_terminal():
+                raise BrowserSelectionError("Browser selection cancelled.") from error
+            default_label = dict(_BROWSER_ENGINES)[_DEFAULT_BROWSER_ENGINE]
+            console.print(
+                f"[yellow]No browser choice on input; using {default_label}. "
+                "Remove browser.json to choose a different engine.[/yellow]"
+            )
+            return _DEFAULT_BROWSER_ENGINE
         if choice.isdigit() and 1 <= int(choice) <= len(_BROWSER_ENGINES):
             return _BROWSER_ENGINES[int(choice) - 1][0]
         console.print("[red]Choose 1, 2, or 3.[/red]")
@@ -151,6 +169,20 @@ def _launch_browser(playwright, console, headless):
         env=env,
     )
 
+def _find_interruption(error):
+    """Return the interruption that a Playwright error replaced while unwinding, if any.
+
+    Ctrl+C also stops the Playwright driver, so cleanup (e.g. leaving
+    sync_playwright()) can raise "Connection closed" and mask the original
+    KeyboardInterrupt or interruption error.
+    """
+    seen = error.__context__
+    while seen is not None:
+        if isinstance(seen, (KeyboardInterrupt, LoginInterruptedError, SubmitInterruptedError)):
+            return seen
+        seen = seen.__context__
+    return None
+
 def log_redirects(request):
     from rich.console import Console
     console = Console()
@@ -195,6 +227,12 @@ def login_to_site(config, verbose=False):
             browser.close()
     except KeyboardInterrupt as error:
         raise LoginInterruptedError("Login interrupted.") from error
+    except playwright_error as error:
+        interruption = _find_interruption(error)
+        if interruption is None:
+            raise
+        message = str(interruption) if isinstance(interruption, LoginInterruptedError) else "Login interrupted."
+        raise LoginInterruptedError(message) from error
 
 def select_from_combo(page, value, placeholder, xpath):
     """
@@ -315,33 +353,41 @@ def submit_timecards(config, timecards, headless=True, interactive=False, dry_ru
         login_to_site(config, verbose)
 
     suffix = DRY_RUN_SUFFIX if dry_run else ""
-    with sync_playwright() as p:
-        browser = _launch_browser(p, console, headless=headless)
-        context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
-        if context is None:
-            return False
+    try:
+        with sync_playwright() as p:
+            browser = _launch_browser(p, console, headless=headless)
+            context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
+            if context is None:
+                return False
 
-        page = context.new_page()
-        if verbose:
-            page.on("request", log_redirects)
+            page = context.new_page()
+            if verbose:
+                page.on("request", log_redirects)
         
-        if _login_to_timecards(console, page, config):
-            console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
+            if _login_to_timecards(console, page, config):
+                console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
 
-        try:
-            _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
-        except playwright_error:
-            console.print("[red]The browser window was closed before submission could complete.[/red]")
-            return False
+            try:
+                _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
+            except playwright_error:
+                console.print("[red]The browser window was closed before submission could complete.[/red]")
+                return False
 
-        if not interactive:
-            _cancel_edit(page)
-            console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
-            browser.close()
-        else:
-            console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
-            console.print("[yellow]Close the browser window when done.[/yellow]")
-            page.wait_for_event("close", timeout=0)
+            if not interactive:
+                _cancel_edit(page)
+                console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
+                browser.close()
+            else:
+                console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
+                console.print("[yellow]Close the browser window when done.[/yellow]")
+                page.wait_for_event("close", timeout=0)
+
+    except KeyboardInterrupt as error:
+        raise SubmitInterruptedError("Submission interrupted.") from error
+    except playwright_error as error:
+        if _find_interruption(error) is None:
+            raise
+        raise SubmitInterruptedError("Submission interrupted.") from error
 
     return True
 

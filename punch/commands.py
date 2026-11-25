@@ -15,7 +15,7 @@ from punch.config import get_config_path, set_config_value
 from punch.export import export_csv, export_json
 from punch.report import generate_report
 from punch.tasks import CMDLINE_SEPARATOR, TaskEntry, parse_new_task_string, write_task
-from punch.web import DRY_RUN_SUFFIX, AuthFileNotFoundError, BrowserInstallError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl, NoCaseMappingError, get_timecards, login_to_site, submit_timecards, timecard_id
+from punch.web import DRY_RUN_SUFFIX, AuthFileNotFoundError, BrowserInstallError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl, SubmitInterruptedError, NoCaseMappingError, get_timecards, login_to_site, submit_timecards, timecard_id
 
 # Constants for progress file handling
 _PROGRESS_TEMP_SUFFIX = '.tmp'
@@ -469,6 +469,11 @@ def handle_submit(args, config, tasks_file, console):
         if not args.dry_run and submission_completed:
             _clear_progress()
 
+    except SubmitInterruptedError as e:
+        console.print(f"[red]{e}[/red]")
+        if not args.dry_run and submitted_ids:
+            console.print("[yellow]Run 'punch submit --resume' to skip entries already submitted.[/yellow]")
+        sys.exit(1)
     except (BrowserInstallError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
