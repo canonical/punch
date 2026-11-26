@@ -5,6 +5,7 @@ import re
 import sys
 import tempfile
 from rich.console import Console
+from rich.markup import escape
 from rich.tree import Tree
 from rich.syntax import Syntax
 import yaml
@@ -15,7 +16,7 @@ from punch.config import get_config_path, set_config_value
 from punch.export import export_csv, export_json
 from punch.report import generate_report
 from punch.tasks import CMDLINE_SEPARATOR, TaskEntry, parse_new_task_string, write_task
-from punch.web import DRY_RUN_SUFFIX, AuthFileNotFoundError, MissingTimecardsUrl, NoCaseMappingError, get_timecards, login_to_site, submit_timecards, timecard_id
+from punch.web import DRY_RUN_SUFFIX, AuthFileNotFoundError, BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl, SubmitInterruptedError, NoCaseMappingError, get_timecards, login_to_site, submit_timecards, timecard_id
 
 # Constants for progress file handling
 _PROGRESS_TEMP_SUFFIX = '.tmp'
@@ -299,8 +300,8 @@ def handle_export(args, tasks_file, console):
 def handle_login(args, config, console):
     try:
         login_to_site(config, args.verbose)
-    except MissingTimecardsUrl as e:
-        console.print(f"[red]{e}[/red]")
+    except (BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
+        console.print(f"[red]{escape(str(e))}[/red]")
         sys.exit(1)
 
 def show_timecards_table(timecards, title="Timecards for submission"):
@@ -469,8 +470,13 @@ def handle_submit(args, config, tasks_file, console):
         if not args.dry_run and submission_completed:
             _clear_progress()
 
-    except MissingTimecardsUrl as e:
+    except SubmitInterruptedError as e:
         console.print(f"[red]{e}[/red]")
+        if not args.dry_run and submitted_ids:
+            console.print("[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]")
+        sys.exit(1)
+    except (BrowserInstallError, BrowserLaunchError, BrowserSelectionError, LoginInterruptedError, MissingTimecardsUrl) as e:
+        console.print(f"[red]{escape(str(e))}[/red]")
         sys.exit(1)
 
 

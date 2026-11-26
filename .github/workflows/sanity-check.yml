@@ -27,9 +27,8 @@ jobs:
       - name: Install dependencies with Poetry
         run: poetry install
 
-      - name: Install Firefox and virtual display
+      - name: Install virtual display
         run: |
-          poetry run playwright install --with-deps firefox
           sudo apt-get install -y xvfb xauth
 
       - name: Make scripts executable

@@ -1,6 +1,9 @@
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 from playwright.sync_api import sync_playwright, Error as playwright_error
 from punch.tasks import read_tasklog
@@ -9,7 +12,6 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.console import Console
 import re
 from punch.config import get_config_path
-import sys
 
 DRY_RUN_SUFFIX = " (dry run)"
 
@@ -32,6 +34,29 @@ class MissingTimecardsUrl(Exception):
 class AuthFileNotFoundError(Exception):
     pass
 
+class BrowserInstallError(Exception):
+    pass
+
+class BrowserSelectionError(Exception):
+    pass
+
+class BrowserLaunchError(Exception):
+    pass
+
+class LoginInterruptedError(Exception):
+    pass
+
+class SubmitInterruptedError(Exception):
+    pass
+
+_BROWSER_ENGINES = (
+    ("chromium", "Chromium"),
+    ("firefox", "Firefox"),
+    ("webkit", "WebKit"),
+)
+# Engine used before the choice existed; applied when no choice can be read from stdin.
+_DEFAULT_BROWSER_ENGINE = "firefox"
+
 def get_timecards_link(config):
     """
     Fetch the timecards link from config, or raise if not set.
@@ -48,6 +73,164 @@ def get_auth_json_path():
     os.makedirs(auth_dir, exist_ok=True)
     return os.path.join(auth_dir, "auth.json")
 
+def _get_browser_preference_path():
+    return os.path.join(os.path.dirname(get_auth_json_path()), "browser.json")
+
+def _stdin_is_terminal():
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+def _choose_browser_engine(console):
+    console.print("[bold]Choose a browser engine for Salesforce:[/bold]")
+    for index, (_, label) in enumerate(_BROWSER_ENGINES, 1):
+        console.print(f"  {index}. {label}")
+
+    count = len(_BROWSER_ENGINES)
+    numbers = [str(index) for index in range(1, count + 1)]
+    choices = numbers[0] if count == 1 else f"{', '.join(numbers[:-1])}{',' if count > 2 else ''} or {numbers[-1]}"
+    while True:
+        try:
+            choice = console.input(f"Browser [1-{count}]: ").strip()
+        except EOFError as error:
+            if _stdin_is_terminal():
+                raise BrowserSelectionError("Browser selection cancelled.") from error
+            default_label = dict(_BROWSER_ENGINES)[_DEFAULT_BROWSER_ENGINE]
+            console.print(
+                f"[yellow]No browser choice on input; using {default_label}. "
+                "Remove browser.json to choose a different engine.[/yellow]"
+            )
+            return _DEFAULT_BROWSER_ENGINE
+        if choice.isdigit() and 1 <= int(choice) <= count:
+            return _BROWSER_ENGINES[int(choice) - 1][0]
+        console.print(f"[red]Choose {choices}.[/red]")
+
+def _load_browser_engine(console):
+    preference_path = _get_browser_preference_path()
+    if not os.path.exists(preference_path):
+        return None
+    try:
+        with open(preference_path, encoding="utf-8") as preference:
+            engine = json.load(preference).get("engine")
+    except (OSError, json.JSONDecodeError, AttributeError) as error:
+        console.print(f"[yellow]Could not read browser preference: {error}[/yellow]")
+        return None
+
+    if not isinstance(engine, str) or engine not in {name for name, _ in _BROWSER_ENGINES}:
+        console.print("[yellow]Saved browser choice is invalid; choose an engine again.[/yellow]")
+        return None
+    return engine
+
+def _get_browser_type(playwright, console):
+    preference_path = _get_browser_preference_path()
+    engine = _load_browser_engine(console)
+    if engine is None:
+        engine = _choose_browser_engine(console)
+
+    browser_type = getattr(playwright, engine)
+    if not os.path.isfile(browser_type.executable_path):
+        _install_browser_engine(engine, console)
+        if not os.path.isfile(browser_type.executable_path):
+            raise BrowserInstallError(
+                f"Playwright reported success, but the {engine} executable was not installed."
+            )
+
+    _save_browser_engine(console, preference_path, engine)
+    return browser_type
+
+def _install_browser_engine(engine, console):
+    console.print(f"[cyan]Downloading {dict(_BROWSER_ENGINES)[engine]} for Playwright...[/cyan]")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", engine],
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise BrowserInstallError(
+            f"Failed to download the selected Playwright browser ({engine})."
+        ) from error
+
+def _save_browser_engine(console, preference_path, engine):
+    temporary_path = f"{preference_path}.tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as preference:
+            json.dump({"engine": engine}, preference)
+        os.replace(temporary_path, preference_path)
+    except OSError as error:
+        console.print(f"[yellow]Could not save browser preference: {error}[/yellow]")
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
+
+def _launch_browser(playwright, console, headless):
+    browser_type = _get_browser_type(playwright, console)
+    try:
+        try:
+            return _launch_browser_type(browser_type, headless)
+        except playwright_error as error:
+            # Playwright's executable_path checks headed Chromium, not its headless shell.
+            if not (
+                headless
+                and browser_type.name == "chromium"
+                and str(error).startswith("BrowserType.launch: Executable doesn't exist at ")
+            ):
+                raise
+            _install_browser_engine("chromium", console)
+            return _launch_browser_type(browser_type, headless)
+    except playwright_error as error:
+        message = f"Failed to launch {browser_type.name}"
+        if str(error).strip():
+            message += f":\n{error}"
+        if os.environ.get("SNAP_NAME") != "punch":
+            message += (
+                f"\nIf system libraries are missing, run "
+                f"'playwright install-deps {browser_type.name}' or choose another engine "
+                "by removing browser.json."
+            )
+        raise BrowserLaunchError(message) from error
+
+def _launch_browser_type(browser_type, headless):
+    if browser_type.name != "webkit" or os.environ.get("SNAP_NAME") != "punch":
+        return browser_type.launch(headless=headless)
+
+    # Playwright's WebKit launcher replaces LD_LIBRARY_PATH, hiding staged Snap libraries.
+    browser_dir = Path(browser_type.executable_path).parent / (
+        "minibrowser-wpe" if headless else "minibrowser-gtk"
+    )
+    env = os.environ.copy()
+    env["WEBKIT_EXEC_PATH"] = str(browser_dir / "bin")
+    env["WEBKIT_INJECTED_BUNDLE_PATH"] = str(browser_dir / "lib")
+    env["WEBKIT_FORCE_COMPLEX_TEXT"] = "1"
+    if headless:
+        env["WEBKIT_INSPECTOR_RESOURCES_PATH"] = str(browser_dir / "share")
+    library_paths = [str(browser_dir / "lib"), str(browser_dir / "sys" / "lib")]
+    if env.get("LD_LIBRARY_PATH"):
+        library_paths.append(env["LD_LIBRARY_PATH"])
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(library_paths)
+    if env.get("SNAP"):
+        env.setdefault("__EGL_VENDOR_LIBRARY_DIRS", os.path.join(env["SNAP"], "usr/share/glvnd/egl_vendor.d"))
+    return browser_type.launch(
+        headless=headless,
+        executable_path=str(browser_dir / "bin" / "MiniBrowser"),
+        env=env,
+    )
+
+def _find_interruption(error):
+    """Return the interruption that a Playwright error replaced while unwinding, if any.
+
+    Ctrl+C also stops the Playwright driver, so cleanup (e.g. leaving
+    sync_playwright()) can raise "Connection closed" and mask the original
+    KeyboardInterrupt or interruption error.
+    """
+    seen = error.__context__
+    while seen is not None:
+        if isinstance(seen, (KeyboardInterrupt, LoginInterruptedError, SubmitInterruptedError)):
+            return seen
+        seen = seen.__context__
+    return None
+
 def log_redirects(request):
     from rich.console import Console
     console = Console()
@@ -58,31 +241,46 @@ def log_redirects(request):
 
 def login_to_site(config, verbose=False):
     console = Console()
-    auth_json_path = get_auth_json_path()
-    timecards_link = get_timecards_link(config)
-    with sync_playwright() as p:
-        browser = p.firefox.launch(headless=False)
-        if os.path.exists(auth_json_path):
-            context = browser.new_context(storage_state=auth_json_path)
-            console.print("[cyan]Loaded existing authentication from auth.json[/cyan]")
-        else:
-            context = browser.new_context()
-            console.print("[yellow]No auth.json found, starting fresh browser session[/yellow]")
-        page = context.new_page()
-        if verbose:
-            page.on("request", log_redirects)
+    try:
+        auth_json_path = get_auth_json_path()
+        timecards_link = get_timecards_link(config)
+        with sync_playwright() as p:
+            browser = _launch_browser(p, console, headless=False)
+            page = None
+            try:
+                if os.path.exists(auth_json_path):
+                    context = browser.new_context(storage_state=auth_json_path)
+                    console.print("[cyan]Loaded existing authentication from auth.json[/cyan]")
+                else:
+                    context = browser.new_context()
+                    console.print("[yellow]No auth.json found, starting fresh browser session[/yellow]")
+                page = context.new_page()
+                if verbose:
+                    page.on("request", log_redirects)
 
-        console.print(f"[cyan]Opening login page: {timecards_link}[/cyan]")
-        page.goto(timecards_link)
+                console.print(f"[cyan]Opening login page: {timecards_link}[/cyan]")
+                page.goto(timecards_link)
 
-        console.print(f"[cyan]Waiting for login at {timecards_link}...[/cyan]")
-        page.wait_for_url(timecards_link, timeout=0)
-        console.print("[green]Login successful.[/green]")
+                console.print(f"[cyan]Waiting for login at {timecards_link}...[/cyan]")
+                page.wait_for_url(timecards_link, timeout=0)
+                console.print("[green]Login successful.[/green]")
 
-        context.storage_state(path=auth_json_path)
-        console.print("[green]Login saved to auth.json[/green]")
+                context.storage_state(path=auth_json_path)
+                console.print("[green]Login saved to auth.json[/green]")
+            except playwright_error as error:
+                if not browser.is_connected() or (page is not None and page.is_closed()):
+                    raise LoginInterruptedError("Login interrupted: the browser window or page closed.") from error
+                raise
 
-        browser.close()
+            browser.close()
+    except KeyboardInterrupt as error:
+        raise LoginInterruptedError("Login interrupted.") from error
+    except playwright_error as error:
+        interruption = _find_interruption(error)
+        if interruption is None:
+            raise
+        message = str(interruption) if isinstance(interruption, LoginInterruptedError) else "Login interrupted."
+        raise LoginInterruptedError(message) from error
 
 def select_from_combo(page, value, placeholder, xpath):
     """
@@ -203,33 +401,47 @@ def submit_timecards(config, timecards, headless=True, interactive=False, dry_ru
         login_to_site(config, verbose)
 
     suffix = DRY_RUN_SUFFIX if dry_run else ""
-    with sync_playwright() as p:
-        browser = p.firefox.launch(headless=headless)
-        context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
-        if context is None:
-            return False
+    try:
+        with sync_playwright() as p:
+            browser = _launch_browser(p, console, headless=headless)
+            page = None
+            try:
+                context = _get_browser_context(browser, auth_json_path if Path(auth_json_path).exists() else None)
+                if context is None:
+                    return False
 
-        page = context.new_page()
-        if verbose:
-            page.on("request", log_redirects)
+                page = context.new_page()
+                if verbose:
+                    page.on("request", log_redirects)
         
-        if _login_to_timecards(console, page, config):
-            console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
+                if _login_to_timecards(console, page, config):
+                    console.print(f"[green]Login successful. Submitting timecards...[/green]{suffix}")
 
-        try:
-            _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
-        except playwright_error:
-            console.print("[red]The browser window was closed before submission could complete.[/red]")
-            return False
+                _submit_entries_with_progress(console, page, config, timecards, interactive, dry_run, sleep, on_progress)
 
-        if not interactive:
-            _cancel_edit(page)
-            console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
-            browser.close()
-        else:
-            console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
-            console.print("[yellow]Close the browser window when done.[/yellow]")
-            page.wait_for_event("close", timeout=0)
+                if not interactive:
+                    _cancel_edit(page)
+                    console.print(f"[bold green]Submitted {len(timecards)} entries.{suffix}[/bold green]")
+                    browser.close()
+                else:
+                    console.print("[yellow]Interactive mode enabled. Please review the entries before submitting.[/yellow]")
+                    console.print("[yellow]Close the browser window when done.[/yellow]")
+                    page.wait_for_event("close", timeout=0)
+            except playwright_error as error:
+                if not browser.is_connected() or (page is not None and page.is_closed()):
+                    raise SubmitInterruptedError(
+                        "Submission interrupted: the browser window or page closed."
+                    ) from error
+                raise
+
+    except KeyboardInterrupt as error:
+        raise SubmitInterruptedError("Submission interrupted.") from error
+    except playwright_error as error:
+        interruption = _find_interruption(error)
+        if interruption is None:
+            raise
+        message = str(interruption) if isinstance(interruption, SubmitInterruptedError) else "Submission interrupted."
+        raise SubmitInterruptedError(message) from error
 
     return True
 

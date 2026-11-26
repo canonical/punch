@@ -6,7 +6,9 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from punch.web import timecard_id, TimecardEntry
+from playwright.sync_api import Error as PlaywrightError
+
+from punch.web import LoginInterruptedError, SubmitInterruptedError, timecard_id, TimecardEntry
 from punch.commands import (
     _clear_progress,
     _get_progress_path,
@@ -161,6 +163,73 @@ class TestHandleSubmitResume(unittest.TestCase):
         mock_submit.assert_called_once()
         submitted_tcs = mock_submit.call_args[0][1]
         self.assertEqual(submitted_tcs, self.all_timecards)
+
+    def test_interrupted_automatic_login_exits_with_message(self):
+        with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+             patch("punch.commands.submit_timecards", side_effect=LoginInterruptedError("Login interrupted.")), \
+             patch("punch.commands.show_timecards_table"):
+            with self.assertRaises(SystemExit) as result:
+                handle_submit(self._args(), self.config, "tasks.txt", self.console)
+        self.assertEqual(result.exception.code, 1)
+        self.console.print.assert_any_call("[red]Login interrupted.[/red]")
+
+    def test_interrupted_submission_suggests_resume(self):
+        def interrupted(*args, on_progress=None, **kwargs):
+            on_progress(timecard_id(self.tc1))
+            raise SubmitInterruptedError("Submission interrupted.")
+
+        with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+             patch("punch.commands.submit_timecards", side_effect=interrupted), \
+             patch("punch.commands.show_timecards_table"), \
+             patch("punch.commands.get_config_path", return_value=self.config_path):
+            with self.assertRaises(SystemExit) as result:
+                handle_submit(self._args(), self.config, "tasks.txt", self.console)
+        self.assertEqual(result.exception.code, 1)
+        self.console.print.assert_any_call("[red]Submission interrupted.[/red]")
+        self.console.print.assert_any_call(
+            "[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]"
+        )
+
+    def test_browser_close_after_partial_submission_exits_and_preserves_progress(self):
+        browser = MagicMock()
+        browser.is_connected.return_value = True
+        page = browser.new_context.return_value.new_page.return_value
+        page.is_closed.return_value = False
+
+        def interrupted(console, page, config, timecards, interactive, dry_run, sleep, on_progress):
+            on_progress(timecard_id(timecards[0]))
+            page.is_closed.return_value = True
+            raise PlaywrightError("Target closed")
+
+        with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+             patch("punch.commands.show_timecards_table"), \
+             patch("punch.commands.get_config_path", return_value=self.config_path), \
+             patch("punch.web.get_auth_json_path", return_value=self.config_path), \
+             patch("punch.web.sync_playwright"), \
+             patch("punch.web._launch_browser", return_value=browser), \
+             patch("punch.web._login_to_timecards", return_value=True), \
+             patch("punch.web._submit_entries_with_progress", side_effect=interrupted):
+            with self.assertRaises(SystemExit) as result:
+                handle_submit(self._args(), self.config, "tasks.txt", self.console)
+            self.assertEqual(_load_progress(), {timecard_id(self.tc1)})
+
+        self.assertEqual(result.exception.code, 1)
+        self.console.print.assert_any_call("[red]Submission interrupted: the browser window or page closed.[/red]")
+        self.console.print.assert_any_call(
+            "[yellow]Rerun the original submit command with '--resume', keeping the same date options, to skip entries already submitted.[/yellow]"
+        )
+
+    def test_interruption_without_saved_progress_does_not_suggest_resume(self):
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run):
+                self.console.reset_mock()
+                with patch("punch.commands.get_timecards", return_value=self.all_timecards), \
+                     patch("punch.commands.submit_timecards", side_effect=SubmitInterruptedError("Submission interrupted.")), \
+                     patch("punch.commands.show_timecards_table"):
+                    with self.assertRaises(SystemExit) as result:
+                        handle_submit(self._args(dry_run=dry_run), self.config, "tasks.txt", self.console)
+                self.assertEqual(result.exception.code, 1)
+                self.assertNotIn("--resume", str(self.console.print.call_args_list))
 
     def test_no_resume_passes_on_progress_for_crash_recovery(self):
         # on_progress should be passed even without --resume so a mid-run crash

@@ -1,6 +1,12 @@
 # Changelog:
 
 ## next
+* web: defer Playwright browser downloads until first login or submit and let users choose Chromium, Firefox, or WebKit.
+* web: fall back to Firefox when no browser choice can be read from non-interactive input.
+* web: report Ctrl+C during login or submit without a traceback, and suggest rerunning the original submit command with `--resume` and the same date options after an interrupted submission.
+* web: report browser closure during submission as an interruption rather than a successful exit.
+* web: preserve Playwright's browser launch diagnostics in error messages.
+* web: install Chromium's headless shell when it is missing during submission.
 
 ## 0.5.2
 * snap: include `libatomic1` so the Playwright driver can start for `punch login` and `punch submit`.

@@ -1,0 +1,16 @@
+#!/bin/sh
+
+# Keep the XDG spec defaults when the session does not set XDG_DATA_DIRS.
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+case "${WAYLAND_DISPLAY:-}" in
+  ""|/*) ;;
+  *)
+    if [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && \
+       [ -S "/run/user/$SNAP_UID/$WAYLAND_DISPLAY" ]; then
+      export WAYLAND_DISPLAY="/run/user/$SNAP_UID/$WAYLAND_DISPLAY"
+    fi
+    ;;
+esac
+
+exec "$@"
