@@ -19,7 +19,7 @@ ruamel-yaml = "^0.18.12"
 dateparser = "^1.2.2"
 typer = "^0.17.4"
 coverage = "^7.10.6"
-textual = "^6.5.0"
+textual = "^8.0.0"
 
 [tool.poetry.scripts]
 punch = "punch.ui.cli:app"
